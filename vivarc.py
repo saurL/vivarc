@@ -67,6 +67,10 @@ COPY_URL_KEY = "shift+meta+c"
 PROFILE_KEYS = ("ctrl+meta+left", "ctrl+meta+right")  # the profile switcher's previous/next, handled by the JS
 SPACE_KEYS = {"COMMAND_WORKSPACE_SWITCH_BACK_ORDER": "alt+meta+left", "COMMAND_WORKSPACE_SWITCH_FORWARD_ORDER": "alt+meta+right",
               "COMMAND_WORKSPACE_CREATE_NEW": "ctrl+meta+n"}  # like Arc's spaces; Ctrl+Cmd+N opens Vivaldi's own Create Workspace dialog
+# Keys earlier builds put on the space commands; removed from them so an upgrade does not keep both.
+LEGACY_SPACE_KEYS = ("meta+left", "meta+right", "alt+meta+left", "alt+meta+right", "alt+ctrl+left", "alt+ctrl+right")
+# Keys an earlier build took from a command and this one hands back, if nothing else holds them (set per platform).
+RESTORED_KEYS = {}
 TOGGLE_SIDEBAR_KEY = "meta+s"
 SIDEBAR_WIDTH = 323
 SIDEBAR_BOTTOM = ["NewTab", "FlexibleSpacer", "AccountButton", "FlexibleSpacer", "PanelDownloads", "UpdateButton"]
@@ -178,8 +182,13 @@ def patch_preferences(prefs, default_actions):
             cmd["shortcuts"] = [s for s in cmd.get("shortcuts", []) if s != TOGGLE_SIDEBAR_KEY and s not in taken]
     for name, key in SPACE_KEYS.items():
         cmd = _command(actions, defaults, name)
-        cmd["shortcuts"] = [s for s in cmd["shortcuts"] if s not in ("meta+left", "meta+right", "alt+meta+left", "alt+meta+right", "alt+ctrl+left", "alt+ctrl+right")]
+        cmd["shortcuts"] = [s for s in cmd["shortcuts"] if s not in LEGACY_SPACE_KEYS]
         cmd["shortcuts"].append(key)
+    held = {s for cmd in actions.values() if isinstance(cmd, dict) for s in cmd.get("shortcuts", [])}
+    for name, key in RESTORED_KEYS.items():
+        cmd = _command(actions, defaults, name)
+        if key not in held and key not in cmd["shortcuts"]:
+            cmd["shortcuts"].insert(0, key)
     _command(actions, defaults, "COMMAND_TOGGLE_AUTO_HIDE_TAB_BAR")["shortcuts"] = [TOGGLE_SIDEBAR_KEY]
     _set(new, ("vivaldi", "actions"), actions_list)
 
@@ -385,10 +394,11 @@ def preflight(resources, ask=ask, open_settings=open_settings):
     die("Still no permission to modify Vivaldi. Nothing was changed. See the README troubleshooting section.")
 
 
-def write_atomic(path, text):
-    """Write next to the target and swap it in, so a reader never sees half a file and a stale owner cannot block us."""
+def write_atomic(path, text, newline=None):
+    """Write next to the target and swap it in, so a reader never sees half a file and a stale owner cannot block us.
+    Pass newline="\\n" for Vivaldi's own files: Windows text mode would otherwise turn LF into CRLF."""
     temp = f"{path}.vivarc-tmp"
-    with open(temp, "w", encoding="utf8") as f:
+    with open(temp, "w", encoding="utf8", newline=newline) as f:
         f.write(text)
     os.replace(temp, path)
 
@@ -453,7 +463,7 @@ def write_bundle(resources, with_peek):
     start_page = pathlib.Path(HOME_DIR, "start", "index.html").as_uri()
     config = {**load_config(), "startUrl": start_page, "platform": platform.system()}
     bundle = build_bundle(os.path.join(HERE, "src/js"), config, extras, pre)
-    write_atomic(os.path.join(resources, "vivarc.js"), bundle)
+    write_atomic(os.path.join(resources, "vivarc.js"), bundle, newline="\n")
 
 
 def apply_js(app, resources, with_peek):
@@ -464,7 +474,7 @@ def apply_js(app, resources, with_peek):
     if BEGIN not in html and not os.path.exists(saved):
         shutil.copy2(html_path, saved)
     write_bundle(resources, with_peek)
-    write_atomic(html_path, inject_window_html(html))
+    write_atomic(html_path, inject_window_html(html), newline="\n")
 
 
 def is_newer(tag, current):
@@ -743,8 +753,7 @@ def cmd_uninstall(args):
     try:
         if os.path.exists(html_path):
             html = read_text(html_path)
-            with open(html_path, "w", encoding="utf8") as f:
-                f.write(remove_window_html(html))
+            write_atomic(html_path, remove_window_html(html), newline="\n")
         bundle = os.path.join(resources, "vivarc.js")
         if os.path.exists(bundle):
             os.remove(bundle)

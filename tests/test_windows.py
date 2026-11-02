@@ -11,6 +11,14 @@ from unittest import mock
 import windows_support as win
 
 
+def private_vivarc():
+    """A private copy of vivarc, so adapter bindings cannot leak to the macOS tests."""
+    spec = importlib.util.spec_from_file_location('vivarc_windows_test', Path(__file__).parents[1] / 'vivarc.py')
+    v = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(v)
+    return v
+
+
 class WindowsSupport(unittest.TestCase):
     def test_versioned_resources_are_sorted_numerically(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -27,18 +35,38 @@ class WindowsSupport(unittest.TestCase):
         with mock.patch.object(win.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, 'INFO: No tasks are running\n')):
             self.assertFalse(win.running())
 
+    def test_upgrading_from_alt_arrow_spaces_gives_back_and_forward_their_keys_again(self):
+        v = private_vivarc()
+        win.configure(v)
+        defaults = [{'COMMAND_PAGE_BACK': {'shortcuts': ['alt+left', 'ctrl+left', 'backspace', 'z']},
+                     'COMMAND_PAGE_FORWARD': {'shortcuts': ['alt+right', 'ctrl+right', 'x']}}]
+        # What the first Windows build left behind: Alt+arrows on the spaces, taken from Back/Forward.
+        old = {'vivaldi': {'actions': [{
+            'COMMAND_PAGE_BACK': {'shortcuts': ['ctrl+left', 'backspace', 'z']},
+            'COMMAND_PAGE_FORWARD': {'shortcuts': ['ctrl+right', 'x']},
+            'COMMAND_WORKSPACE_SWITCH_BACK_ORDER': {'shortcuts': ['alt+left']},
+            'COMMAND_WORKSPACE_SWITCH_FORWARD_ORDER': {'shortcuts': ['alt+right']}}]}}
+        for prefs in ({}, old):  # a fresh profile and an upgraded one end up the same
+            actions = v.patch_preferences(prefs, defaults)[0]['vivaldi']['actions'][0]
+            self.assertEqual(actions['COMMAND_PAGE_BACK']['shortcuts'], ['alt+left', 'backspace', 'z'])
+            self.assertEqual(actions['COMMAND_PAGE_FORWARD']['shortcuts'], ['alt+right', 'x'])
+            self.assertEqual(actions['COMMAND_WORKSPACE_SWITCH_BACK_ORDER']['shortcuts'], ['ctrl+left'])
+            self.assertEqual(actions['COMMAND_WORKSPACE_SWITCH_FORWARD_ORDER']['shortcuts'], ['ctrl+right'])
+        # A key the user has given to another command stays there.
+        mine = {'vivaldi': {'actions': [{**old['vivaldi']['actions'][0], 'COMMAND_TAB_PREVIOUS': {'shortcuts': ['alt+left']}}]}}
+        actions = v.patch_preferences(mine, defaults)[0]['vivaldi']['actions'][0]
+        self.assertNotIn('alt+left', actions['COMMAND_PAGE_BACK']['shortcuts'])
+        self.assertEqual(actions['COMMAND_TAB_PREVIOUS']['shortcuts'], ['alt+left'])
+
     def test_install_reapply_and_uninstall_restore_preferences(self):
-        # Load a private copy so adapter bindings cannot leak to the macOS tests.
-        spec = importlib.util.spec_from_file_location('vivarc_windows_test', Path(__file__).parents[1] / 'vivarc.py')
-        v = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(v)
+        v = private_vivarc()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             app = root / 'Vivaldi app'
             resources = app / '8.10.1' / 'resources' / 'vivaldi'
             resources.mkdir(parents=True)
-            html = '<html><body></body></html>'
-            (resources / 'window.html').write_text(html)
+            html = b'<html>\n<body>\n</body>\n</html>\n'  # LF, as Vivaldi ships it
+            (resources / 'window.html').write_bytes(html)
             actions = [{'COMMAND_NEW_TAB': {'shortcuts': ['ctrl+t']}, 'COMMAND_SAVE_PAGE': {'shortcuts': ['ctrl+s']}}]
             (resources / 'prefs_definitions.json').write_text(json.dumps({'vivaldi': {'actions': {'default': actions}}}))
             data = root / 'User Data'
@@ -60,13 +88,16 @@ class WindowsSupport(unittest.TestCase):
                 self.assertEqual(patched['vivaldi']['actions'][0]['COMMAND_NEW_TAB']['shortcuts'], [])
                 self.assertIn(v.BEGIN, (resources / 'window.html').read_text())
                 self.assertIn('"platform": "Windows"', (resources / 'vivarc.js').read_text(encoding='utf8'))
+                self.assertNotIn(b'\r', (resources / 'vivarc.js').read_bytes())  # Vivaldi's files stay LF
+                if os.name == 'nt':  # cmd.exe launchers keep the platform's CRLF
+                    self.assertIn(b'\r\n', Path(v.UPDATE_COMMAND).read_bytes())
                 launcher = Path(v.UPDATE_COMMAND).read_text(encoding='utf8')
                 self.assertIn('"' + str(data) + '"', launcher)
                 self.assertIn('"' + str(app) + '"', launcher)
                 v.cmd_install(args)
                 v.cmd_uninstall(args)
                 self.assertEqual(json.loads(prefs.read_text()), original)
-                self.assertNotIn(v.BEGIN, (resources / 'window.html').read_text())
+                self.assertEqual((resources / 'window.html').read_bytes(), html)  # byte-identical: no CRLF
                 self.assertFalse((resources / 'vivarc.js').exists())
                 self.assertFalse(Path(v.UPDATE_COMMAND).exists())
                 self.assertFalse(Path(v.UNINSTALL_COMMAND).exists())
@@ -85,7 +116,7 @@ class WindowsSupport(unittest.TestCase):
         script = ('const config = {platform: "Windows"};' + mapping
                   + 'console.log(JSON.stringify(["meta+t", "meta+s", "shift+meta+c", "ctrl+meta+left", "ctrl+meta+n", "alt+meta+left"].map(shortcut)));')
         result = subprocess.run(['node', '-e', script], capture_output=True, text=True, encoding='utf8', check=True)
-        self.assertEqual(json.loads(result.stdout), ['ctrl+t', 'ctrl+s', 'shift+ctrl+c', 'ctrl+shift+left', 'alt+ctrl+n', 'alt+left'])
+        self.assertEqual(json.loads(result.stdout), ['ctrl+t', 'ctrl+s', 'shift+ctrl+c', 'ctrl+shift+left', 'alt+ctrl+n', 'ctrl+left'])
 
     @unittest.skipUnless(os.name == 'nt', 'requires Windows cmd.exe')
     def test_batch_installer_downloads_local_archive_and_passes_arguments(self):
