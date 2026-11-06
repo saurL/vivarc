@@ -18,7 +18,9 @@
 
 > **Arc is being discontinued on December 22, 2026**, according to the announcement email The Browser Company sent. If you want to keep the sidebar and command bar workflow somewhere else, Vivarc gives you most of it in Vivaldi, free and open source.
 
-## Install
+## Installation
+
+Choose your platform: [macOS](#macos) or [Windows](#windows).
 
 No developer experience needed. It takes about two minutes.
 
@@ -54,6 +56,24 @@ Requires Windows 10 or 11 and Vivaldi 8.x installed the default way (for your us
 
 Every Vivaldi update on Windows installs into a new folder, which leaves Vivarc behind. The installer adds a small scheduled task (`Vivarc\Reapply`, every 30 minutes while you are logged in) that puts Vivarc back by itself and tells you to restart Vivaldi. Turn it off with `python ~\.vivarc\app\vivarc.py reminder off`.
 
+#### Windows commands after installation
+
+The installer downloads Vivarc into `%USERPROFILE%\.vivarc\app`; you do not need
+to clone the repository to update or remove it. From PowerShell:
+
+```powershell
+python "$env:USERPROFILE\.vivarc\app\vivarc.py" update
+python "$env:USERPROFILE\.vivarc\app\vivarc.py" status
+python "$env:USERPROFILE\.vivarc\app\vivarc.py" uninstall
+```
+
+To reapply a local change or restore Vivarc after a browser update manually,
+close Vivaldi and run:
+
+```powershell
+python "$env:USERPROFILE\.vivarc\app\vivarc.py" apply
+```
+
 ### Troubleshooting
 
 - **"Operation not permitted" or "macOS blocked writing into Vivaldi.app":** switch on Terminal under System Settings > Privacy & Security > App Management, then paste the line again. **Do not use `sudo`**: it does not help and can leave files only root can change.
@@ -81,7 +101,7 @@ Both tools are small apps that the installer leaves in the `Applications` folder
 1. Double-click **Uninstall Vivarc**.
 2. It quits Vivaldi, restores your settings, removes Vivarc and reopens Vivaldi. Your bookmarks, including the `Vivarc` folder, are never deleted, and you do not need to reinstall Vivaldi.
 
-**Start fresh.** Run **Uninstall Vivarc**, then paste the install line from [Install](#install) again.
+**Start fresh.** Run **Uninstall Vivarc**, then paste the install line from [Installation](#installation) again.
 
 **From Terminal instead:**
 
