@@ -47,6 +47,15 @@ Requires macOS and Vivaldi 8.x. If your Mac has never had developer tools, macOS
    irm https://raw.githubusercontent.com/KASOGIT/vivarc/main/install.ps1 | iex
    ```
 
+Alternatively, from **Command Prompt** (`cmd`), with Python 3 already installed:
+
+```bat
+curl.exe -fSL https://raw.githubusercontent.com/KASOGIT/vivarc/main/install.bat -o "%TEMP%\vivarc-install.bat" && call "%TEMP%\vivarc-install.bat"
+```
+
+The batch installer uses Windows `curl.exe`, `tar.exe` and `xcopy`. It installs the
+same release and runs the same Python CLI as the PowerShell installer.
+
 3. Follow what it says. It offers to close Vivaldi for you.
 4. Open Vivaldi.
 
